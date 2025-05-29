@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SafeAreaView, StyleSheet, View, ScrollView, Platform, StatusBar, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, Platform, StatusBar, Alert } from 'react-native';
 import {
   Text,
   Button,
@@ -8,9 +8,10 @@ import {
   SegmentedButtons,
   Divider,
   Card,
-  IconButton,
-  ActivityIndicator
+  IconButton
 } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App'; // RootStackParamList App.tsx'den import edilecek
 import * as ImagePicker from 'expo-image-picker';
@@ -122,7 +123,7 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar barStyle="light-content" />
+      <ExpoStatusBar style={theme.dark ? "light" : "dark"} backgroundColor={theme.colors.background} />
       <Surface style={styles.header} elevation={0}>
         <View style={styles.headerContent}>
           <View style={styles.headerText}>

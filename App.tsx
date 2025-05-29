@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { PaperProvider, MD3DarkTheme } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
+import * as NavigationBar from 'expo-navigation-bar';
+import { Platform } from 'react-native';
 
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -35,9 +37,16 @@ function App(): React.JSX.Element {
   // Varsayılan olarak koyu tema kullan
   const theme = MD3DarkTheme;
 
+  useEffect(() => {
+    // Android için navigation bar rengini ayarla
+    if (Platform.OS === 'android') {
+      NavigationBar.setBackgroundColorAsync(theme.colors.background);
+    }
+  }, [theme.colors.background]);
+
   return (
     <PaperProvider theme={theme}>
-      <StatusBar style="light" />
+      <StatusBar style="light" backgroundColor={theme.colors.background} />
       <NavigationContainer>
         <Stack.Navigator initialRouteName="Onboarding">
           <Stack.Screen

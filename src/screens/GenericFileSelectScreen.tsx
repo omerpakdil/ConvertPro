@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, Platform, Alert, Image, StatusBar as ReactNativeStatusBar } from 'react-native';
+import { View, StyleSheet, Platform, Alert, Image, StatusBar as ReactNativeStatusBar } from 'react-native';
 import {
   Text,
   Button,
@@ -10,6 +10,7 @@ import {
   Divider,
   List
 } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -89,7 +90,7 @@ export const GenericFileSelectScreen = ({ navigation, route }: GenericFileSelect
           setIsLoading(false);
           return;
         }
-        
+
         // @ts-ignore TODO: result.assets null olabilir
         const newFile = { uri: result.assets[0].uri, name: result.assets[0].fileName || result.assets[0].uri.split('/').pop() || 'unknown.image' };
         // Kullanıcının birden fazla dosya eklemesine izin ver
@@ -118,7 +119,7 @@ export const GenericFileSelectScreen = ({ navigation, route }: GenericFileSelect
       setIsLoading(false);
     }
   };
-  
+
   const handleNavigateToSettings = () => {
     if (selectedFiles.length === 0) {
       Alert.alert('No Files Selected', 'Please select at least one file to proceed.');
@@ -147,7 +148,7 @@ export const GenericFileSelectScreen = ({ navigation, route }: GenericFileSelect
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar style={theme.dark ? "light" : "dark"} />
+      <StatusBar style={theme.dark ? "light" : "dark"} backgroundColor={theme.colors.background} />
       <Surface style={styles.header} elevation={0}>
         <View style={styles.headerRow}>
           <IconButton
@@ -220,11 +221,11 @@ export const GenericFileSelectScreen = ({ navigation, route }: GenericFileSelect
                     <Image source={{ uri: file.uri }} style={styles.thumbnail} /> :
                     <List.Icon {...props} icon="file-outline" color={theme.colors.primary} />
                   }
-                  right={props => 
-                    <IconButton 
-                      {...props} 
-                      icon="close-circle" 
-                      size={20} 
+                  right={props =>
+                    <IconButton
+                      {...props}
+                      icon="close-circle"
+                      size={20}
                       onPress={() => setSelectedFiles(files => files.filter((_, i) => i !== index))}
                       iconColor={theme.colors.error}
                     />
@@ -244,7 +245,7 @@ export const GenericFileSelectScreen = ({ navigation, route }: GenericFileSelect
             </Button>
           </View>
         )}
-        
+
         {selectedFiles.length === 0 && (
           <>
             <Divider style={[styles.divider, {backgroundColor: theme.colors.outline}] } />

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, SafeAreaView, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar } from 'react-native';
+import { View, StyleSheet, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar } from 'react-native';
 import {
   Text,
   Button,
@@ -11,6 +11,7 @@ import {
   Divider,
   List
 } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar'; // Kurulumu gerekebilir
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -213,7 +214,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
       return { ...file, success: false, error: error.message || 'Audio processing simulation failed', outputName: newFileNameWithExtension };
     }
   };
- 
+
   const startOverallConversion = async () => {
     setConversionState('converting');
     const results: ConvertedFileResult[] = [];
@@ -226,7 +227,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
       }
       setCurrentFileIndex(i);
       const currentFile = filesToConvert[i];
-      
+
       let result: ConvertedFileResult;
       if (conversionType === 'image') {
         result = await processImageFile(currentFile, outputFormatExtension, quality);
@@ -243,12 +244,12 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
             outputName: `${currentFile.name.substring(0, currentFile.name.lastIndexOf('.')) || currentFile.name}_converted.${outputFormatExtension}`
         };
       }
-      
+
       results.push(result);
       setProcessedFiles([...results]);
       setOverallProgress((i + 1) / totalFiles);
     }
-    
+
     if (!isCancelledRef.current) {
         setConversionState(results.every(r => r.success) ? 'completed' : 'error');
         setCurrentStatusMessage(results.every(r => r.success) ? 'All conversions completed!' : 'Some conversions failed.');
@@ -267,7 +268,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     // Further cleanup or navigation can be added here
     // navigation.goBack(); // Or navigate to Home
   };
-  
+
   const getOverallStatusMessage = () => {
     if (conversionState === 'converting') {
       return `Processing file ${currentFileIndex + 1} of ${totalFiles}: ${filesToConvert[currentFileIndex]?.name || ''}`;
@@ -279,7 +280,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar style={theme.dark ? "light" : "dark"} />
+      <StatusBar style={theme.dark ? "light" : "dark"} backgroundColor={theme.colors.background} />
       <Surface style={styles.header} elevation={0}>
         <View style={styles.headerRow}>
           {allDone ? (
@@ -317,7 +318,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
             <Text variant="titleMedium" style={[styles.statusText, { color: theme.colors.onBackground }]}>
               {getOverallStatusMessage()}
             </Text>
-            
+
             {filesToConvert[currentFileIndex] && (
                 <Text variant="bodySmall" style={{color: theme.colors.onSurfaceVariant, marginBottom: 10}}>
                     Current: {filesToConvert[currentFileIndex].name}
@@ -389,7 +390,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
             <Text variant="headlineSmall" style={[styles.summaryTitle, { color: theme.colors.onBackground }]}>
               {currentStatusMessage}
             </Text>
-            
+
             <Card style={[styles.resultCard, {backgroundColor: theme.colors.surfaceVariant}]}>
               <Card.Content>
                 <Text variant="titleMedium" style={{color: theme.colors.onSurfaceVariant, marginBottom: 10}}>Results:</Text>

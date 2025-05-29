@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, Platform, Alert, StatusBar as ReactNativeStatusBar } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform, Alert, StatusBar as ReactNativeStatusBar } from 'react-native';
 import {
   Text,
   Button,
@@ -12,6 +12,7 @@ import {
   Chip,
   ActivityIndicator
 } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Slider from '@react-native-community/slider'; // Kurulumu gerekebilir
 import { StatusBar } from 'expo-status-bar'; // Kurulumu gerekebilir
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -144,7 +145,7 @@ export const GenericConversionSettingsScreen = ({ navigation, route }: GenericCo
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar style={theme.dark ? "light" : "dark"} />
+      <StatusBar style={theme.dark ? "light" : "dark"} backgroundColor={theme.colors.background} />
       <Surface style={styles.header} elevation={0}>
         <View style={styles.headerRow}>
           <IconButton
