@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "FormatConverterAppNew",
-    "slug": "FormatConverterAppNew",
+    "name": "ConvertPro",
+    "slug": "convertpro",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
