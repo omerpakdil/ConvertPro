@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar } from 'react-native';
+import { View, StyleSheet, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar, Image, Dimensions, Linking } from 'react-native';
+import FFmpegService, { ConversionProgress } from '../services/FFmpegService';
+import DocumentService from '../services/DocumentService';
 import {
   Text,
   Button,
@@ -9,7 +11,8 @@ import {
   ProgressBar,
   Card,
   Divider,
-  List
+  List,
+  Chip
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar'; // Kurulumu gerekebilir
@@ -72,6 +75,117 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     transform: [{ scale: checkmarkScale.value }],
   }));
 
+  // Helper function to get supported image format
+  const getSupportedImageFormat = (extension: string): { supported: boolean; format?: ImageManipulator.SaveFormat } => {
+    switch (extension.toLowerCase()) {
+      case 'jpeg':
+      case 'jpg':
+        return { supported: true, format: ImageManipulator.SaveFormat.JPEG };
+      case 'png':
+        return { supported: true, format: ImageManipulator.SaveFormat.PNG };
+      case 'webp':
+        return { supported: true, format: ImageManipulator.SaveFormat.WEBP };
+      case 'heic':
+      case 'heif':
+        // HEIC/HEIF can be read by expo-image-manipulator but saved as JPEG for compatibility
+        return { supported: true, format: ImageManipulator.SaveFormat.JPEG };
+      default:
+        return { supported: false };
+    }
+  };
+
+  // Enhanced error handling for image processing
+  const handleImageProcessingError = (error: any, fileName: string): string => {
+    console.error('Image processing error:', error);
+
+    if (error.message?.includes('permission')) {
+      return 'Permission denied. Please check app permissions.';
+    }
+    if (error.message?.includes('memory') || error.message?.includes('size')) {
+      return 'File too large or insufficient memory.';
+    }
+    if (error.message?.includes('format') || error.message?.includes('corrupt')) {
+      return 'Invalid or corrupted image file.';
+    }
+    if (error.message?.includes('network') || error.message?.includes('timeout')) {
+      return 'Network error or operation timeout.';
+    }
+
+    return error.message || 'Unknown error occurred during image processing.';
+  };
+
+  // Function to open gallery app
+  const openGalleryApp = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        // Android - try different approaches to open gallery
+        const galleryUrls = [
+          'content://media/external/images/media', // Generic gallery
+          'market://details?id=com.google.android.apps.photos', // Google Photos in Play Store
+          'https://play.google.com/store/apps/details?id=com.google.android.apps.photos', // Google Photos web
+        ];
+
+        // Try to open gallery with content URI
+        try {
+          await Linking.openURL('content://media/external/images/media');
+          return;
+        } catch (contentError) {
+          console.log('Content URI failed, trying alternatives...');
+        }
+
+        // Try to open Google Photos app directly
+        try {
+          await Linking.openURL('googlephoto://');
+          return;
+        } catch (photosError) {
+          console.log('Google Photos app not found, trying web version...');
+        }
+
+        // Try to open Google Photos web version
+        try {
+          await Linking.openURL('https://photos.google.com/');
+          return;
+        } catch (webError) {
+          console.log('Web version failed, opening settings...');
+        }
+
+        // Final fallback - open app settings
+        await Linking.openSettings();
+
+      } else if (Platform.OS === 'ios') {
+        // iOS - open Photos app
+        try {
+          await Linking.openURL('photos-redirect://');
+          return;
+        } catch (photosError) {
+          // Fallback to Settings
+          await Linking.openSettings();
+        }
+      }
+    } catch (error) {
+      console.error('Error opening gallery:', error);
+      Alert.alert(
+        'Cannot Open Gallery',
+        'Unable to open the gallery app automatically. Please open your Photos/Gallery app manually to view the converted files.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Handle file sharing
+  const handleShareFile = async (filePath: string, fileName: string) => {
+    try {
+      console.log('📤 Sharing file:', filePath, fileName);
+      const success = await DocumentService.shareConvertedFile(filePath, fileName);
+      if (!success) {
+        Alert.alert('Share Failed', 'Unable to share the file. Please try again.');
+      }
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('Share Error', 'An error occurred while sharing the file.');
+    }
+  };
+
   useEffect(() => {
     isCancelledRef.current = false;
     startOverallConversion();
@@ -88,26 +202,20 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
     const newFileNameWithExtension = `${baseName}_converted.${targetExtension}`;
 
-    let saveFormat: ImageManipulator.SaveFormat;
-    switch (targetExtension.toLowerCase()) {
-      case 'jpeg':
-      case 'jpg':
-        saveFormat = ImageManipulator.SaveFormat.JPEG;
-        break;
-      case 'png':
-        saveFormat = ImageManipulator.SaveFormat.PNG;
-        break;
-      case 'webp':
-        saveFormat = ImageManipulator.SaveFormat.WEBP;
-        break;
-      default:
-        // Desteklenmeyen formatlar için (SVG, TIFF vb.)
-        setCurrentStatusMessage(`Format ${targetExtension.toUpperCase()} is not supported for direct conversion. Skipping ${file.name}.`);
-        // İsteğe bağlı olarak burada bir gecikme eklenebilir veya dosya kopyalama simülasyonu yapılabilir.
-        // Şimdilik işlemi atlıyoruz ve hata olarak işaretliyoruz.
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Kullanıcıya mesajı göstermek için kısa bir bekleme
-        return { ...file, success: false, error: `Unsupported format: ${targetExtension.toUpperCase()}`, outputName: newFileNameWithExtension };
+    // Validate and get save format
+    const formatResult = getSupportedImageFormat(targetExtension);
+    if (!formatResult.supported) {
+      setCurrentStatusMessage(`Format ${targetExtension.toUpperCase()} is not supported. Skipping ${file.name}.`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return {
+        ...file,
+        success: false,
+        error: `Unsupported format: ${targetExtension.toUpperCase()}. Supported formats: JPG, PNG, WebP, HEIC`,
+        outputName: newFileNameWithExtension
+      };
     }
+
+    const saveFormat = formatResult.format!;
 
     const saveOptions: ImageManipulator.SaveOptions = {
       format: saveFormat,
@@ -120,29 +228,55 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     }
 
     try {
+      // Step 1: Validate file access
+      setCurrentStatusMessage(`Validating ${file.name}...`);
+      setCurrentFileProgress(0.1);
+
+      // Check if file still exists and is accessible
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(file.uri);
+        if (!fileInfo.exists) {
+          return { ...file, success: false, error: 'File no longer exists or is not accessible', outputName: newFileNameWithExtension };
+        }
+      } catch (fileError) {
+        return { ...file, success: false, error: 'Cannot access file. It may have been moved or deleted.', outputName: newFileNameWithExtension };
+      }
+
+      // Step 2: Start conversion
       setCurrentStatusMessage(`Converting ${file.name} to ${targetExtension.toUpperCase()}...`);
-      // İlerleme çubuğu için yapay bir ilerleme (manipulateAsync ilerleme sağlamıyor)
-      setCurrentFileProgress(0.3);
+      setCurrentFileProgress(0.2);
+
       const manipResult = await ImageManipulator.manipulateAsync(
         file.uri,
-        [], // Şimdilik action yok
+        [], // No transformations for now
         saveOptions
       );
-      setCurrentFileProgress(0.7);
+      setCurrentFileProgress(0.6);
 
       if (isCancelledRef.current) {
         return { ...file, success: false, error: 'Cancelled by user', outputName: newFileNameWithExtension };
       }
 
-      setCurrentStatusMessage(`Saving ${newFileNameWithExtension} to gallery...`);
+      // Step 3: Request permissions
+      setCurrentStatusMessage(`Requesting permissions...`);
+      setCurrentFileProgress(0.7);
+
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Media Library permission is needed to save files.');
         return { ...file, success: false, error: 'Media Library permission denied', outputName: newFileNameWithExtension };
       }
 
+      // Step 4: Save to gallery
+      setCurrentStatusMessage(`Saving ${newFileNameWithExtension} to gallery...`);
+      setCurrentFileProgress(0.8);
+
       const asset = await MediaLibrary.createAssetAsync(manipResult.uri);
-      // Geçici dosyayı sil (isteğe bağlı, cacheDirectory genellikle OS tarafından yönetilir)
+      setCurrentFileProgress(0.95);
+
+      // Step 5: Cleanup and finish
+      setCurrentStatusMessage(`Finalizing ${newFileNameWithExtension}...`);
+      // Optional: Clean up temporary files
       // await FileSystem.deleteAsync(manipResult.uri, { idempotent: true });
 
       console.log('File saved to gallery:', asset.uri);
@@ -150,68 +284,246 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
       return { ...file, success: true, outputPath: asset.uri, outputName: newFileNameWithExtension };
 
     } catch (error: any) {
-      console.error('Image processing error:', error);
+      const errorMessage = handleImageProcessingError(error, file.name);
       setCurrentFileProgress(1); // Hata durumunda da ilerlemeyi tamamla
-      return { ...file, success: false, error: error.message || 'Image processing failed', outputName: newFileNameWithExtension };
+      return { ...file, success: false, error: errorMessage, outputName: newFileNameWithExtension };
     }
   };
 
-  // Ses dosyası işleme fonksiyonu (simülasyon)
-  const processAudioFile = async (file: FileToConvert, targetExtension: string /*, bitrate: number // TODO: Gelecekte kullanılacak */): Promise<ConvertedFileResult> => {
+  // Process audio file using FFmpeg
+  const processAudioFile = async (file: FileToConvert, targetExtension: string, quality?: number): Promise<ConvertedFileResult> => {
     setCurrentFileProgress(0);
     setCurrentStatusMessage(`Preparing ${file.name} for audio conversion...`);
 
     const originalFileName = file.uri.split('/').pop() || 'unknown_original_audio';
     const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
     const newFileNameWithExtension = `${baseName}_converted.${targetExtension}`;
-    const tempDir = FileSystem.cacheDirectory + 'converted_audio/';
 
     try {
-      // Geçici klasörün var olduğundan emin ol
-      await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
-      const tempFilePath = `${tempDir}${newFileNameWithExtension}`;
+      setCurrentFileProgress(0.1);
+      setCurrentStatusMessage(`Converting ${file.name} to ${targetExtension.toUpperCase()}...`);
 
-      setCurrentStatusMessage(`Simulating conversion of ${file.name} to ${targetExtension.toUpperCase()}...`);
-      // Simülasyon: Dosyayı kopyala
-      await FileSystem.copyAsync({
-        from: file.uri,
-        to: tempFilePath,
-      });
-      setCurrentFileProgress(0.5); // Simülasyon ilerlemesi
+      // Determine quality level
+      let qualityLevel: 'low' | 'medium' | 'high' | 'ultra' = 'medium';
+      if (quality) {
+        if (quality <= 128) qualityLevel = 'low';
+        else if (quality <= 192) qualityLevel = 'medium';
+        else if (quality <= 256) qualityLevel = 'high';
+        else qualityLevel = 'ultra';
+      }
 
-      // TODO: Gerçek ses işleme (örn: ffmpeg ile) burada entegre edilecek.
-      // Örneğin: await NativeModules.AudioProcessor.process(file.uri, tempFilePath, targetExtension, bitrate);
-      // Şimdilik sadece bir gecikme ekleyelim
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Yapay işlem süresi
+      setCurrentFileProgress(0.2);
+
+      // Convert using FFmpeg
+      const result = await FFmpegService.convertAudio(
+        file.uri,
+        targetExtension,
+        {
+          outputFormat: targetExtension,
+          quality: qualityLevel,
+          bitrate: quality ? `${quality}k` : undefined
+        },
+        (progress: ConversionProgress) => {
+          // Update progress
+          const progressPercent = Math.min(0.2 + (progress.progress / 100) * 0.6, 0.8);
+          setCurrentFileProgress(progressPercent);
+          console.log('Audio conversion progress:', progress);
+        }
+      );
 
       if (isCancelledRef.current) {
-        await FileSystem.deleteAsync(tempFilePath, { idempotent: true });
         return { ...file, success: false, error: 'Cancelled by user', outputName: newFileNameWithExtension };
       }
 
-      setCurrentFileProgress(0.7);
-      setCurrentStatusMessage(`Saving ${newFileNameWithExtension} to media library...`);
+      setCurrentFileProgress(0.9);
 
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Media Library permission is needed to save audio files.');
-        await FileSystem.deleteAsync(tempFilePath, { idempotent: true });
-        return { ...file, success: false, error: 'Media Library permission denied', outputName: newFileNameWithExtension };
+      if (result.success) {
+        console.log('Audio file converted and saved:', result.outputPath);
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: true,
+          outputPath: result.outputPath!,
+          outputName: newFileNameWithExtension
+        };
+      } else {
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: false,
+          error: result.error || 'Audio conversion failed',
+          outputName: newFileNameWithExtension
+        };
+      }
+    } catch (error: any) {
+      console.error('Audio conversion error:', error);
+      setCurrentFileProgress(1);
+      return {
+        ...file,
+        success: false,
+        error: error.message || 'Audio conversion failed',
+        outputName: newFileNameWithExtension
+      };
+    }
+  };
+
+  // Process video file using FFmpeg
+  const processVideoFile = async (file: FileToConvert, targetExtension: string, quality?: number): Promise<ConvertedFileResult> => {
+    setCurrentFileProgress(0);
+    setCurrentStatusMessage(`Preparing ${file.name} for video conversion...`);
+
+    const originalFileName = file.uri.split('/').pop() || 'unknown_original_video';
+    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
+    const newFileNameWithExtension = `${baseName}_converted.${targetExtension}`;
+
+    try {
+      setCurrentFileProgress(0.1);
+      setCurrentStatusMessage(`Converting ${file.name} to ${targetExtension.toUpperCase()}...`);
+
+      // Determine quality level and resolution
+      let qualityLevel: 'low' | 'medium' | 'high' | 'ultra' = 'medium';
+      let resolution: string | undefined;
+
+      if (quality) {
+        if (quality <= 480) {
+          qualityLevel = 'low';
+          resolution = '480p';
+        } else if (quality <= 720) {
+          qualityLevel = 'medium';
+          resolution = '720p';
+        } else if (quality <= 1080) {
+          qualityLevel = 'high';
+          resolution = '1080p';
+        } else {
+          qualityLevel = 'ultra';
+          resolution = '4k';
+        }
       }
 
-      const asset = await MediaLibrary.createAssetAsync(tempFilePath);
-      // Kopyalanan geçici dosya, createAssetAsync tarafından galeriye kopyalandıktan sonra silinebilir.
-      // Ancak expo-file-system cache'i genellikle OS tarafından yönetildiği için zorunlu değil.
-      // İsteğe bağlı: await FileSystem.deleteAsync(tempFilePath, { idempotent: true });
+      setCurrentFileProgress(0.2);
 
-      console.log('Audio file saved to media library:', asset.uri);
-      setCurrentFileProgress(1);
-      return { ...file, success: true, outputPath: asset.uri, outputName: newFileNameWithExtension };
+      // Convert using FFmpeg
+      const result = await FFmpegService.convertVideo(
+        file.uri,
+        targetExtension,
+        {
+          outputFormat: targetExtension,
+          quality: qualityLevel,
+          resolution: resolution
+        },
+        (progress: ConversionProgress) => {
+          // Update progress
+          const progressPercent = Math.min(0.2 + (progress.progress / 100) * 0.6, 0.8);
+          setCurrentFileProgress(progressPercent);
+          console.log('Video conversion progress:', progress);
+        }
+      );
 
+      if (isCancelledRef.current) {
+        return { ...file, success: false, error: 'Cancelled by user', outputName: newFileNameWithExtension };
+      }
+
+      setCurrentFileProgress(0.9);
+
+      if (result.success) {
+        console.log('Video file converted and saved:', result.outputPath);
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: true,
+          outputPath: result.outputPath!,
+          outputName: newFileNameWithExtension
+        };
+      } else {
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: false,
+          error: result.error || 'Video conversion failed',
+          outputName: newFileNameWithExtension
+        };
+      }
     } catch (error: any) {
-      console.error('Audio processing simulation error:', error);
-      setCurrentFileProgress(1); // Hata durumunda da ilerlemeyi tamamla
-      return { ...file, success: false, error: error.message || 'Audio processing simulation failed', outputName: newFileNameWithExtension };
+      console.error('Video conversion error:', error);
+      setCurrentFileProgress(1);
+      return {
+        ...file,
+        success: false,
+        error: error.message || 'Video conversion failed',
+        outputName: newFileNameWithExtension
+      };
+    }
+  };
+
+  // Process document file using DocumentService
+  const processDocumentFile = async (file: FileToConvert, targetExtension: string, options?: any): Promise<ConvertedFileResult> => {
+    setCurrentFileProgress(0);
+    setCurrentStatusMessage(`Preparing ${file.name} for document conversion...`);
+
+    const originalFileName = file.uri.split('/').pop() || 'unknown_original_document';
+    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
+    const newFileNameWithExtension = `${baseName}_converted.${targetExtension}`;
+
+    try {
+      setCurrentFileProgress(0.1);
+      setCurrentStatusMessage(`Converting ${file.name} to ${targetExtension.toUpperCase()}...`);
+
+      // Determine document conversion options
+      const conversionOptions = {
+        outputFormat: targetExtension,
+        fontSize: options?.fontSize || 12,
+        fontFamily: options?.fontFamily || 'Arial',
+        pageSize: options?.pageSize || 'A4',
+        margins: {
+          top: 72,
+          bottom: 72,
+          left: 72,
+          right: 72
+        }
+      };
+
+      setCurrentFileProgress(0.2);
+
+      // Convert using DocumentService
+      const result = await DocumentService.convertDocumentFile(
+        file.uri,
+        targetExtension,
+        conversionOptions
+      );
+
+      if (isCancelledRef.current) {
+        return { ...file, success: false, error: 'Cancelled by user', outputName: newFileNameWithExtension };
+      }
+
+      setCurrentFileProgress(0.9);
+
+      if (result.success) {
+        console.log('Document file converted and saved:', result.outputPath);
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: true,
+          outputPath: result.outputPath!,
+          outputName: newFileNameWithExtension
+        };
+      } else {
+        setCurrentFileProgress(1);
+        return {
+          ...file,
+          success: false,
+          error: result.error || 'Document conversion failed',
+          outputName: newFileNameWithExtension
+        };
+      }
+    } catch (error: any) {
+      console.error('Document conversion error:', error);
+      setCurrentFileProgress(1);
+      return {
+        ...file,
+        success: false,
+        error: error.message || 'Document conversion failed',
+        outputName: newFileNameWithExtension
+      };
     }
   };
 
@@ -219,45 +531,80 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     setConversionState('converting');
     const results: ConvertedFileResult[] = [];
 
+    // Process files sequentially for better user experience and resource management
     for (let i = 0; i < totalFiles; i++) {
       if (isCancelledRef.current) {
         setConversionState('cancelled');
         setCurrentStatusMessage('Conversion cancelled.');
         break;
       }
+
       setCurrentFileIndex(i);
       const currentFile = filesToConvert[i];
+      setCurrentStatusMessage(`Processing file ${i + 1} of ${totalFiles}: ${currentFile.name}`);
 
       let result: ConvertedFileResult;
-      if (conversionType === 'image') {
-        result = await processImageFile(currentFile, outputFormatExtension, quality || 75);
-      } else if (conversionType === 'audio') {
-        // audioBitrate parametresi processAudioFile'a eklenebilir (TODO için)
-        result = await processAudioFile(currentFile, outputFormatExtension /*, route.params.audioBitrate */);
-      } else {
-        setCurrentStatusMessage(`Conversion type '${conversionType}' is not yet implemented for ${currentFile.name}.`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        result = {
+
+      try {
+        if (conversionType === 'image') {
+          result = await processImageFile(currentFile, outputFormatExtension, quality || 75);
+        } else if (conversionType === 'audio') {
+          result = await processAudioFile(currentFile, outputFormatExtension, quality);
+        } else if (conversionType === 'video') {
+          result = await processVideoFile(currentFile, outputFormatExtension, quality);
+        } else if (conversionType === 'document') {
+          result = await processDocumentFile(currentFile, outputFormatExtension, { quality });
+        } else {
+          // Unsupported conversion type
+          setCurrentStatusMessage(`Conversion type '${conversionType}' is not yet implemented for ${currentFile.name}.`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          result = {
             ...currentFile,
             success: false,
-            error: `Conversion type '${conversionType}' not implemented.`,
+            error: `Conversion type '${conversionType}' not implemented yet. Coming soon!`,
             outputName: `${currentFile.name.substring(0, currentFile.name.lastIndexOf('.')) || currentFile.name}_converted.${outputFormatExtension}`
+          };
+        }
+      } catch (error: any) {
+        // Catch any unexpected errors during processing
+        console.error('Unexpected error during file processing:', error);
+        result = {
+          ...currentFile,
+          success: false,
+          error: `Unexpected error: ${error.message || 'Unknown error occurred'}`,
+          outputName: `${currentFile.name.substring(0, currentFile.name.lastIndexOf('.')) || currentFile.name}_converted.${outputFormatExtension}`
         };
       }
 
       results.push(result);
       setProcessedFiles([...results]);
       setOverallProgress((i + 1) / totalFiles);
+
+      // Small delay between files for better UX
+      if (i < totalFiles - 1 && !isCancelledRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
 
+    // Final state update
     if (!isCancelledRef.current) {
-        setConversionState(results.every(r => r.success) ? 'completed' : 'error');
-        setCurrentStatusMessage(results.every(r => r.success) ? 'All conversions completed!' : 'Some conversions failed.');
-        if (results.every(r => r.success)) {
-            checkmarkScale.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.exp) });
-            checkmarkOpacity.value = withTiming(1, { duration: 500 });
-        }
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.filter(r => !r.success).length;
+
+      if (successCount === totalFiles) {
+        setConversionState('completed');
+        setCurrentStatusMessage(`All ${totalFiles} file(s) converted successfully!`);
+        checkmarkScale.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.exp) });
+        checkmarkOpacity.value = withTiming(1, { duration: 500 });
+      } else if (successCount > 0) {
+        setConversionState('error');
+        setCurrentStatusMessage(`${successCount} file(s) converted, ${failureCount} failed.`);
+      } else {
+        setConversionState('error');
+        setCurrentStatusMessage('All conversions failed. Please check your files and try again.');
+      }
     }
+
     setCurrentFileProgress(0); // Reset for next or end
   };
 
@@ -308,9 +655,9 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
         {!allDone && (
           <View style={styles.progressContainer}>
             <IconButton
-              icon={conversionType === 'image' ? 'image-sync' :
-                   conversionType === 'audio' ? 'music-note-cog' :
-                   conversionType === 'video' ? 'video-sync' : 'file-sync'}
+              icon={conversionType === 'image' ? 'image-edit' :
+                   conversionType === 'audio' ? 'music-note' :
+                   conversionType === 'video' ? 'video' : 'file-document'}
               size={80}
               iconColor={theme.colors.primary}
               style={styles.typeIcon}
@@ -391,57 +738,147 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
               {currentStatusMessage}
             </Text>
 
+            {/* Conversion Results */}
             <Card style={[styles.resultCard, {backgroundColor: theme.colors.surfaceVariant}]}>
               <Card.Content>
-                <Text variant="titleMedium" style={{color: theme.colors.onSurfaceVariant, marginBottom: 10}}>Results:</Text>
-                {processedFiles.map((file, index) => (
-                  <List.Item
-                    key={index}
-                    title={file.name}
-                    description={file.success ? `Converted to ${file.outputName}` : `Error: ${file.error}`}
-                    titleStyle={{color: file.success ? theme.colors.primary : theme.colors.error}}
-                    descriptionStyle={{color: theme.colors.onSurfaceVariant}}
-                    left={props => <List.Icon {...props} icon={file.success ? "check" : "alert-circle-outline"} color={file.success ? theme.colors.primary : theme.colors.error} />}
-                    style={{borderBottomWidth: 1, borderBottomColor: theme.colors.outlineVariant}}
-                  />
-                ))}
+                <View style={styles.resultHeader}>
+                  <Text variant="titleMedium" style={{color: theme.colors.onSurfaceVariant}}>
+                    Conversion Results
+                  </Text>
+                  <View style={styles.resultStats}>
+                    {processedFiles.filter(f => f.success).length > 0 && (
+                      <Chip
+                        icon="check-circle"
+                        style={[styles.statChip, {backgroundColor: theme.colors.primaryContainer}]}
+                        textStyle={{color: theme.colors.onPrimaryContainer}}
+                      >
+                        {processedFiles.filter(f => f.success).length} Success
+                      </Chip>
+                    )}
+                    {processedFiles.filter(f => !f.success).length > 0 && (
+                      <Chip
+                        icon="alert-circle"
+                        style={[styles.statChip, {backgroundColor: theme.colors.errorContainer}]}
+                        textStyle={{color: theme.colors.onErrorContainer}}
+                      >
+                        {processedFiles.filter(f => !f.success).length} Failed
+                      </Chip>
+                    )}
+                  </View>
+                </View>
+
+                <Divider style={{marginVertical: 16}} />
+
+                {/* File Results - Show all files */}
+                <View style={styles.fileResultsContainer}>
+                  {processedFiles.map((file, index) => (
+                    <View key={index} style={[styles.fileResultItem, {borderColor: theme.colors.outline}]}>
+                      <View style={styles.fileResultLeft}>
+                        {/* Thumbnail for images */}
+                        {conversionType === 'image' && file.success && file.outputPath ? (
+                          <Image
+                            source={{ uri: file.outputPath }}
+                            style={[styles.resultThumbnail, {borderColor: theme.colors.outline}]}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <Surface style={[styles.resultIconContainer, {backgroundColor: file.success ? theme.colors.primaryContainer : theme.colors.errorContainer}]} elevation={0}>
+                            <IconButton
+                              icon={
+                                file.success ? (
+                                  conversionType === 'image' ? 'image' :
+                                  conversionType === 'audio' ? 'music-note' :
+                                  conversionType === 'video' ? 'video' : 'file-document'
+                                ) : 'alert-circle'
+                              }
+                              iconColor={file.success ? theme.colors.onPrimaryContainer : theme.colors.onErrorContainer}
+                              size={24}
+                            />
+                          </Surface>
+                        )}
+                      </View>
+
+                      <View style={styles.fileResultContent}>
+                        <Text
+                          variant="bodyMedium"
+                          style={[styles.fileResultTitle, {color: file.success ? theme.colors.onSurface : theme.colors.error}]}
+                          numberOfLines={1}
+                        >
+                          {file.name}
+                        </Text>
+                        <Text
+                          variant="bodySmall"
+                          style={[styles.fileResultDescription, {color: theme.colors.onSurfaceVariant}]}
+                          numberOfLines={2}
+                        >
+                          {file.success ? `✓ Converted` : `✗ ${file.error}`}
+                        </Text>
+                        {file.success && (
+                          <Chip
+                            icon="check"
+                            style={[styles.successChip, {backgroundColor: 'rgba(76, 175, 80, 0.2)'}]}
+                            textStyle={{color: theme.colors.primary, fontSize: 10}}
+                            compact
+                          >
+                            Saved to Gallery
+                          </Chip>
+                        )}
+                      </View>
+
+                      <View style={styles.fileResultActions}>
+                        {file.success && file.outputPath && (
+                          <IconButton
+                            icon="share"
+                            iconColor={theme.colors.primary}
+                            size={20}
+                            onPress={() => handleShareFile(file.outputPath!, file.outputName || file.name)}
+                          />
+                        )}
+                        <IconButton
+                          icon={file.success ? "check-circle" : "alert-circle"}
+                          iconColor={file.success ? theme.colors.primary : theme.colors.error}
+                          size={20}
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
                 {processedFiles.length === 0 && conversionState === 'cancelled' && (
-                    <Text style={{color: theme.colors.onSurfaceVariant, textAlign: 'center'}}>No files were processed.</Text>
+                  <View style={styles.emptyState}>
+                    <IconButton icon="cancel" size={48} iconColor={theme.colors.onSurfaceVariant} />
+                    <Text style={{color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 8}}>
+                      No files were processed.
+                    </Text>
+                  </View>
                 )}
               </Card.Content>
             </Card>
 
             <View style={styles.buttonContainer}>
-              {/* Placeholder for "View Files" or "Share All" */}
               {processedFiles.some(f => f.success) && (
-                <Button
-                  mode="contained"
-                  onPress={() => {
-                    // TODO: Daha gelişmiş bir dosya görüntüleme/paylaşma özelliği eklenebilir.
-                    // Şimdilik sadece bir log mesajı yazdırıyoruz ve başarılı dosyaların yollarını gösteriyoruz.
-                    console.log("Open Output Folder (Demo) clicked.");
-                    const successfulFiles = processedFiles.filter(f => f.success && f.outputPath);
-                    if (successfulFiles.length > 0) {
-                        Alert.alert(
-                            "Converted Files",
-                            `Successfully converted ${successfulFiles.length} file(s).\n\nPaths:\n${successfulFiles.map(f => `${f.outputName} (at ${f.outputPath})`).join('\n')}`,
-                            [{ text: "OK" }]
-                        );
-                    } else {
-                        Alert.alert("No Files Converted", "No files were successfully converted or saved to the gallery.", [{ text: "OK" }]);
-                    }
-                  }}
-                  style={styles.actionButton}
-                  icon="folder-open-outline"
-                >
-                  View Converted Files (Log)
-                </Button>
+                <View style={styles.actionButtonRow}>
+
+
+                  <Button
+                    mode="outlined"
+                    onPress={() => {
+                      // Navigate back to conversion settings to convert more files
+                      navigation.goBack();
+                    }}
+                    style={[styles.actionButton, styles.secondaryButton]}
+                    icon="plus"
+                  >
+                    Convert More
+                  </Button>
+                </View>
               )}
+
               <Button
-                mode="outlined"
+                mode={processedFiles.some(f => f.success) ? "text" : "contained"}
                 onPress={() => navigation.popToTop()}
                 style={styles.actionButton}
-                icon="home-outline"
+                icon="home"
               >
                 Back to Home
               </Button>
@@ -519,15 +956,87 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: 12,
     marginBottom: 32,
-    maxHeight: 300, // Added for scrollability if many files
+  },
+  resultHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  resultStats: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  statChip: {
+    borderRadius: 16,
+  },
+  fileResultsContainer: {
+    // No height limit - show all files
+  },
+  fileResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  fileResultLeft: {
+    marginRight: 12,
+  },
+  resultThumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  resultIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fileResultContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  fileResultTitle: {
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  fileResultDescription: {
+    marginBottom: 6,
+  },
+  successChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32,
   },
   buttonContainer: {
     width: '100%',
     marginTop: 16,
   },
-  actionButton: {
+  actionButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 16,
+  },
+  actionButton: {
     paddingVertical: 6,
+  },
+  primaryButton: {
+    flex: 1,
+  },
+  secondaryButton: {
+    flex: 1,
+  },
+  fileResultActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
 

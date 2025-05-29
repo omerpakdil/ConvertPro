@@ -6,10 +6,13 @@ import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { Platform } from 'react-native';
 
+// Buffer polyfill for React Native
+import { Buffer } from 'buffer';
+global.Buffer = Buffer;
+
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import SubscriptionScreen from './src/screens/SubscriptionScreen';
-import GenericFileSelectScreen from './src/screens/GenericFileSelectScreen';
 import GenericConversionSettingsScreen from './src/screens/GenericConversionSettingsScreen';
 import GenericConversionProgressScreen from './src/screens/GenericConversionProgressScreen';
 import ErrorBoundary from './src/components/ErrorBoundary';
@@ -18,7 +21,6 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Home: undefined;
   Subscription: undefined;
-  GenericFileSelect: { conversionType: 'image' | 'audio' | 'video' | 'document' };
   GenericConversionSettings: {
     files: Array<{ uri: string; name: string }>;
     conversionType: 'image' | 'audio' | 'video' | 'document';
@@ -66,11 +68,7 @@ function App(): React.JSX.Element {
             component={SubscriptionScreen}
             options={{ headerShown: false }}
           />
-          <Stack.Screen
-            name="GenericFileSelect"
-            component={GenericFileSelectScreen}
-            options={({ route }) => ({ title: `Select ${route.params.conversionType.charAt(0).toUpperCase() + route.params.conversionType.slice(1)} File(s)` })}
-          />
+
           <Stack.Screen
             name="GenericConversionSettings"
             component={GenericConversionSettingsScreen}

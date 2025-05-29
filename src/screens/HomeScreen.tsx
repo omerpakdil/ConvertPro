@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, ScrollView, Platform, StatusBar, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, ScrollView, Platform, StatusBar, Alert, Image } from 'react-native';
 import {
   Text,
   Button,
@@ -8,11 +8,14 @@ import {
   SegmentedButtons,
   Divider,
   Card,
-  IconButton
+  IconButton,
+  List,
+  Chip
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../../App'; // RootStackParamList App.tsx'den import edilecek
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -30,6 +33,7 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const theme = useTheme();
   const [conversionType, setConversionType] = useState<'image' | 'audio' | 'video' | 'document'>('image');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Array<{ uri: string; name: string }>>([]);
 
   // Get appropriate MIME types for file selection
   const getMimeTypes = () => {
@@ -37,11 +41,11 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       case 'image':
         return ['image/webp', 'image/heic', 'image/heif', 'image/tiff', 'image/svg+xml', 'image/png', 'image/jpeg'];
       case 'audio':
-        return ['audio/flac', 'audio/wav', 'audio/mpeg', 'audio/aac', 'audio/ogg', 'audio/mp4', 'audio/opus'];
+        return ['audio/flac', 'audio/wav', 'audio/mpeg', 'audio/aac', 'audio/ogg', 'audio/mp4'];
       case 'video':
-        return ['video/avi', 'video/x-matroska', 'video/mp4', 'video/webm', 'video/3gpp', 'video/quicktime'];
+        return ['video/avi', 'video/x-matroska', 'video/mp4', 'video/quicktime'];
       case 'document':
-        return ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'application/epub+zip', 'application/rtf', 'text/markdown'];
+        return ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/html', 'application/epub+zip', 'application/rtf', 'text/markdown'];
       default:
         return ['*/*'];
     }
@@ -59,7 +63,7 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
     }
   };
 
-  // Handle file selection and navigate directly to settings
+  // Handle file selection - now supports multiple files
   const handleSelectFile = async () => {
     try {
       setIsLoading(true);
@@ -78,17 +82,17 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
           mediaTypes: 'images',
           allowsEditing: false,
           quality: 1,
+          allowsMultipleSelection: true, // Enable multiple selection for images
         });
 
         if (result.canceled || !result.assets || result.assets.length === 0) {
           return;
         }
 
-        const newFile = {
-          uri: result.assets[0].uri,
-          name: result.assets[0].fileName || result.assets[0].uri.split('/').pop() || 'unknown.image'
-        };
-        rawFiles = [newFile];
+        rawFiles = result.assets.map(asset => ({
+          uri: asset.uri,
+          name: asset.fileName || asset.uri.split('/').pop() || 'unknown.image'
+        }));
 
       } else {
         const result = await DocumentPicker.getDocumentAsync({
@@ -123,12 +127,9 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
         );
       }
 
-      // Navigate with valid files only
+      // Add valid files to selected files list
       if (validFiles.length > 0) {
-        navigation.navigate('GenericConversionSettings', {
-          files: validFiles,
-          conversionType
-        });
+        setSelectedFiles(prevFiles => [...prevFiles, ...validFiles]);
       } else if (invalidFiles.length > 0) {
         // All files were invalid
         Alert.alert(
@@ -145,6 +146,42 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       setIsLoading(false);
     }
   };
+
+  // Remove file from selected files
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
+  };
+
+  // Clear all selected files
+  const handleClearFiles = () => {
+    setSelectedFiles([]);
+  };
+
+  // Navigate to conversion settings
+  const handleProceedToConversion = () => {
+    if (selectedFiles.length === 0) {
+      Alert.alert('No Files Selected', 'Please select at least one file to proceed.');
+      return;
+    }
+    navigation.navigate('GenericConversionSettings', {
+      files: selectedFiles,
+      conversionType
+    });
+  };
+
+  // Reset selected files when conversion type changes
+  const handleConversionTypeChange = (newType: 'image' | 'audio' | 'video' | 'document') => {
+    setConversionType(newType);
+    setSelectedFiles([]); // Clear selected files when type changes
+  };
+
+  // Clear selected files when screen comes into focus (user returns from other screens)
+  useFocusEffect(
+    React.useCallback(() => {
+      // Clear selected files when returning to home screen
+      setSelectedFiles([]);
+    }, [])
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -168,7 +205,7 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       <ScrollView style={styles.content}>
         <SegmentedButtons
           value={conversionType}
-          onValueChange={setConversionType}
+          onValueChange={handleConversionTypeChange}
           buttons={[
             {
               value: 'image',
@@ -198,25 +235,97 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
         <Surface style={styles.card} elevation={1}>
           <Text variant="titleMedium" style={styles.cardTitle}>
-            Select a {conversionType} file to convert
+            Select {conversionType} file(s) to convert
           </Text>
           <Text variant="bodyMedium" style={styles.cardText}>
             {conversionType === 'image' && 'Supported formats: WebP, HEIC, BMP, PNG, JPEG, TIFF, SVG, RAW'}
-            {conversionType === 'audio' && 'Supported formats: FLAC, WAV, MP3, AAC, OGG, M4A, OPUS, ALAC'}
-            {conversionType === 'video' && 'Supported formats: AVI, MKV, MOV, MP4, WebM, HEVC, 3GP'}
-            {conversionType === 'document' && 'Supported formats: PDF, DOCX, TXT, EPUB, RTF, MD'}
+            {conversionType === 'audio' && 'Supported formats: FLAC, WAV, MP3, AAC, OGG, M4A, ALAC'}
+            {conversionType === 'video' && 'Supported formats: AVI, MKV, MOV, MP4'}
+            {conversionType === 'document' && 'Supported formats: PDF, DOCX, TXT, HTML, EPUB, RTF, MD'}
           </Text>
-          <Button
-            mode="contained"
-            onPress={handleSelectFile}
-            icon="file-upload"
-            style={styles.button}
-            loading={isLoading}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Selecting...' : 'Select File'}
-          </Button>
+          <View style={styles.buttonRow}>
+            <Button
+              mode="contained"
+              onPress={handleSelectFile}
+              icon="file-upload"
+              style={[styles.button, styles.selectButton]}
+              loading={isLoading}
+              disabled={isLoading}
+            >
+              {isLoading ? 'Selecting...' : selectedFiles.length > 0 ? 'Add More Files' : 'Select Files'}
+            </Button>
+            {selectedFiles.length > 0 && (
+              <Button
+                mode="outlined"
+                onPress={handleClearFiles}
+                icon="delete"
+                style={[styles.button, styles.clearButton]}
+                disabled={isLoading}
+              >
+                Clear All
+              </Button>
+            )}
+          </View>
         </Surface>
+
+        {/* Selected Files Section */}
+        {selectedFiles.length > 0 && (
+          <Surface style={styles.selectedFilesCard} elevation={1}>
+            <View style={styles.selectedFilesHeader}>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                Selected Files ({selectedFiles.length})
+              </Text>
+              <Chip icon="check-circle" style={styles.statusChip}>
+                Ready to Convert
+              </Chip>
+            </View>
+
+            <List.Section style={styles.filesList}>
+              {selectedFiles.map((file, index) => (
+                <List.Item
+                  key={index}
+                  title={file.name}
+                  description={`File ${index + 1} of ${selectedFiles.length}`}
+                  titleNumberOfLines={1}
+                  descriptionNumberOfLines={1}
+                  left={(props) =>
+                    conversionType === 'image' ? (
+                      <Image source={{ uri: file.uri }} style={styles.fileThumbnail} />
+                    ) : (
+                      <List.Icon
+                        {...props}
+                        icon={
+                          conversionType === 'audio' ? 'music-note' :
+                          conversionType === 'video' ? 'video' : 'file-document'
+                        }
+                      />
+                    )
+                  }
+                  right={(props) => (
+                    <IconButton
+                      {...props}
+                      icon="close-circle"
+                      size={20}
+                      onPress={() => handleRemoveFile(index)}
+                      iconColor={theme.colors.error}
+                    />
+                  )}
+                  style={styles.fileListItem}
+                />
+              ))}
+            </List.Section>
+
+            <Button
+              mode="contained"
+              onPress={handleProceedToConversion}
+              icon="arrow-right-circle"
+              style={styles.convertButton}
+              disabled={selectedFiles.length === 0}
+            >
+              Convert {selectedFiles.length} File{selectedFiles.length > 1 ? 's' : ''}
+            </Button>
+          </Surface>
+        )}
 
         <Text variant="titleMedium" style={styles.recentTitle}>Recent Conversions</Text>
 
@@ -304,6 +413,49 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   button: {
+    marginTop: 8,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  selectButton: {
+    flex: 1,
+  },
+  clearButton: {
+    flex: 0.6,
+  },
+  selectedFilesCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  selectedFilesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  statusChip: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  filesList: {
+    marginBottom: 16,
+  },
+  fileListItem: {
+    borderRadius: 8,
+    marginBottom: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  fileThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginLeft: 8,
+    marginRight: 8,
+  },
+  convertButton: {
     marginTop: 8,
   },
   recentTitle: {

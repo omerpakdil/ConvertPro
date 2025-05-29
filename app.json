@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.callousity.convertpro"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,10 +23,19 @@
       },
       "edgeToEdgeEnabled": true,
       "navigationBarColor": "#1a1a2e",
-      "statusBarBackgroundColor": "#1a1a2e"
+      "statusBarBackgroundColor": "#1a1a2e",
+      "package": "com.callousity.convertpro"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-dev-client"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ba22128b-05f8-462b-bf7b-f4dd908b209f"
+      }
     }
   }
 }

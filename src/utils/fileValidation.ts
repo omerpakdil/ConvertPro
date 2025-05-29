@@ -12,9 +12,9 @@ export const FILE_SIZE_LIMITS = {
 // Supported file extensions
 export const SUPPORTED_EXTENSIONS = {
   image: ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.svg', '.bmp'],
-  audio: ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.opus', '.wma'],
-  video: ['.mp4', '.avi', '.mkv', '.mov', '.webm', '.3gp', '.wmv', '.flv'],
-  document: ['.pdf', '.docx', '.txt', '.epub', '.rtf', '.md', '.doc'],
+  audio: ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma'],
+  video: ['.mp4', '.avi', '.mkv', '.mov'],
+  document: ['.pdf', '.docx', '.txt', '.html', '.htm', '.epub', '.rtf', '.md', '.doc'],
 } as const;
 
 // MIME type mappings
@@ -25,15 +25,14 @@ export const MIME_TYPES = {
   ],
   audio: [
     'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/aac', 'audio/ogg',
-    'audio/mp4', 'audio/opus', 'audio/x-ms-wma'
+    'audio/mp4', 'audio/x-ms-wma'
   ],
   video: [
-    'video/mp4', 'video/avi', 'video/x-matroska', 'video/quicktime',
-    'video/webm', 'video/3gpp', 'video/x-ms-wmv', 'video/x-flv'
+    'video/mp4', 'video/avi', 'video/x-matroska', 'video/quicktime'
   ],
   document: [
     'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain', 'application/epub+zip', 'application/rtf', 'text/markdown',
+    'text/plain', 'text/html', 'application/epub+zip', 'application/rtf', 'text/markdown',
     'application/msword'
   ],
 } as const;
