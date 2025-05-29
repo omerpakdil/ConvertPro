@@ -12,6 +12,7 @@ import SubscriptionScreen from './src/screens/SubscriptionScreen';
 import GenericFileSelectScreen from './src/screens/GenericFileSelectScreen';
 import GenericConversionSettingsScreen from './src/screens/GenericConversionSettingsScreen';
 import GenericConversionProgressScreen from './src/screens/GenericConversionProgressScreen';
+import ErrorBoundary from './src/components/ErrorBoundary';
 
 export type RootStackParamList = {
   Onboarding: undefined;
@@ -45,9 +46,10 @@ function App(): React.JSX.Element {
   }, [theme.colors.background]);
 
   return (
-    <PaperProvider theme={theme}>
-      <StatusBar style="light" backgroundColor={theme.colors.background} />
-      <NavigationContainer>
+    <ErrorBoundary>
+      <PaperProvider theme={theme}>
+        <StatusBar style="light" backgroundColor={theme.colors.background} />
+        <NavigationContainer>
         <Stack.Navigator initialRouteName="Onboarding">
           <Stack.Screen
             name="Onboarding"
@@ -80,8 +82,9 @@ function App(): React.JSX.Element {
             options={{ headerShown: false }}
           />
         </Stack.Navigator>
-      </NavigationContainer>
-    </PaperProvider>
+        </NavigationContainer>
+      </PaperProvider>
+    </ErrorBoundary>
   );
 }
 

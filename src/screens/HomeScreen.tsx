@@ -16,6 +16,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App'; // RootStackParamList App.tsx'den import edilecek
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { validateFiles, MediaType } from '../utils/fileValidation';
+import { requestAllRequiredPermissions } from '../utils/permissions';
+import { handleError } from '../utils/errors';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -44,16 +47,16 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
     }
   };
 
-  // Request permissions
-  const requestPermissions = async () => {
-    if (conversionType === 'image') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to make this work!');
-        return false;
-      }
+  // Request permissions using new permission system
+  const requestPermissions = async (): Promise<boolean> => {
+    try {
+      const { allGranted } = await requestAllRequiredPermissions(conversionType, true);
+      return allGranted;
+    } catch (error) {
+      const appError = handleError(error, 'requestPermissions');
+      Alert.alert('Permission Error', appError.userMessage);
+      return false;
     }
-    return true;
   };
 
   // Handle file selection and navigate directly to settings
@@ -61,14 +64,15 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
     try {
       setIsLoading(true);
 
+      // Request permissions
       const hasPermission = await requestPermissions();
       if (!hasPermission) {
-        setIsLoading(false);
         return;
       }
 
-      let selectedFiles: Array<{ uri: string; name: string }> = [];
+      let rawFiles: Array<{ uri: string; name: string }> = [];
 
+      // File selection based on type
       if (conversionType === 'image') {
         const result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: 'images',
@@ -77,7 +81,6 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
         });
 
         if (result.canceled || !result.assets || result.assets.length === 0) {
-          setIsLoading(false);
           return;
         }
 
@@ -85,7 +88,7 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
           uri: result.assets[0].uri,
           name: result.assets[0].fileName || result.assets[0].uri.split('/').pop() || 'unknown.image'
         };
-        selectedFiles = [newFile];
+        rawFiles = [newFile];
 
       } else {
         const result = await DocumentPicker.getDocumentAsync({
@@ -95,27 +98,49 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
         });
 
         if (result.canceled || !result.assets || result.assets.length === 0) {
-          setIsLoading(false);
           return;
         }
 
-        selectedFiles = result.assets.map(asset => ({
+        rawFiles = result.assets.map(asset => ({
           uri: asset.uri,
           name: asset.name || asset.uri.split('/').pop() || 'unknown.file'
         }));
       }
 
-      // Navigate directly to conversion settings with selected files
-      if (selectedFiles.length > 0) {
+      // Validate selected files
+      const { validFiles, invalidFiles } = await validateFiles(rawFiles, conversionType as MediaType);
+
+      // Show errors for invalid files
+      if (invalidFiles.length > 0) {
+        const errorMessages = invalidFiles.map(({ file, error }) =>
+          `${file.name}: ${error.userMessage}`
+        ).join('\n');
+
+        Alert.alert(
+          'File Validation Error',
+          `Some files could not be processed:\n\n${errorMessages}`,
+          [{ text: 'OK' }]
+        );
+      }
+
+      // Navigate with valid files only
+      if (validFiles.length > 0) {
         navigation.navigate('GenericConversionSettings', {
-          files: selectedFiles,
+          files: validFiles,
           conversionType
         });
+      } else if (invalidFiles.length > 0) {
+        // All files were invalid
+        Alert.alert(
+          'No Valid Files',
+          'None of the selected files could be processed. Please choose different files.',
+          [{ text: 'OK' }]
+        );
       }
 
     } catch (error) {
-      console.error('File selection error:', error);
-      Alert.alert('Error', 'Failed to select file. Please try again.');
+      const appError = handleError(error, 'handleSelectFile');
+      Alert.alert('File Selection Error', appError.userMessage);
     } finally {
       setIsLoading(false);
     }

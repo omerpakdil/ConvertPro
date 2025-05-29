@@ -230,7 +230,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
 
       let result: ConvertedFileResult;
       if (conversionType === 'image') {
-        result = await processImageFile(currentFile, outputFormatExtension, quality);
+        result = await processImageFile(currentFile, outputFormatExtension, quality || 75);
       } else if (conversionType === 'audio') {
         // audioBitrate parametresi processAudioFile'a eklenebilir (TODO için)
         result = await processAudioFile(currentFile, outputFormatExtension /*, route.params.audioBitrate */);

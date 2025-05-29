@@ -203,7 +203,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
 
       {/* Gradient Background */}
       <LinearGradient
-        colors={stepData.gradient}
+        colors={stepData.gradient as any}
         style={styles.gradientBackground}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
