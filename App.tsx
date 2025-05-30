@@ -6,15 +6,17 @@ import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { Platform } from 'react-native';
 
-// Buffer polyfill for React Native
-import { Buffer } from 'buffer';
-global.Buffer = Buffer;
+
 
 import OnboardingScreen from './src/screens/OnboardingScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import SubscriptionScreen from './src/screens/SubscriptionScreen';
 import GenericConversionSettingsScreen from './src/screens/GenericConversionSettingsScreen';
 import GenericConversionProgressScreen from './src/screens/GenericConversionProgressScreen';
+import CompressionSettingsScreen from './src/screens/CompressionSettingsScreen';
+import CompressionProgressScreen from './src/screens/CompressionProgressScreen';
+import AudioCompressionSettingsScreen from './src/screens/AudioCompressionSettingsScreen';
+import AudioCompressionProgressScreen from './src/screens/AudioCompressionProgressScreen';
 import ErrorBoundary from './src/components/ErrorBoundary';
 
 export type RootStackParamList = {
@@ -23,14 +25,28 @@ export type RootStackParamList = {
   Subscription: undefined;
   GenericConversionSettings: {
     files: Array<{ uri: string; name: string }>;
-    conversionType: 'image' | 'audio' | 'video' | 'document';
+    conversionType: 'image' | 'audio' | 'video';
   };
   GenericConversionProgress: {
     files: Array<{ uri: string; name: string; outputName: string }>;
     outputFormatId: string;
     outputFormatExtension: string;
     quality?: number;
-    conversionType: 'image' | 'audio' | 'video' | 'document';
+    conversionType: 'image' | 'audio' | 'video';
+  };
+  CompressionSettings: {
+    files: Array<{ uri: string; name: string }>;
+  };
+  CompressionProgress: {
+    files: Array<{ uri: string; name: string }>;
+    compressionSettings: any; // CompressionSettings type
+  };
+  AudioCompressionSettings: {
+    files: Array<{ uri: string; name: string }>;
+  };
+  AudioCompressionProgress: {
+    files: Array<{ uri: string; name: string }>;
+    compressionSettings: any; // AudioCompressionSettings type
   };
 };
 
@@ -78,6 +94,32 @@ function App(): React.JSX.Element {
             name="GenericConversionProgress"
             component={GenericConversionProgressScreen as any}
             options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="CompressionSettings"
+            component={CompressionSettingsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="CompressionProgress"
+            component={CompressionProgressScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: false
+            }}
+          />
+          <Stack.Screen
+            name="AudioCompressionSettings"
+            component={AudioCompressionSettingsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="AudioCompressionProgress"
+            component={AudioCompressionProgressScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: false
+            }}
           />
         </Stack.Navigator>
         </NavigationContainer>

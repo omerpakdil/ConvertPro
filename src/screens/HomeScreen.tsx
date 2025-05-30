@@ -22,6 +22,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import { validateFiles, MediaType } from '../utils/fileValidation';
 import { requestAllRequiredPermissions } from '../utils/permissions';
 import { handleError } from '../utils/errors';
+import ConversionHistoryManager, { ConversionHistoryItem } from '../utils/conversionHistory';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -31,30 +34,20 @@ type HomeScreenProps = {
 
 export const HomeScreen = ({ navigation }: HomeScreenProps) => {
   const theme = useTheme();
-  const [conversionType, setConversionType] = useState<'image' | 'audio' | 'video' | 'document'>('image');
+  const [operationType, setOperationType] = useState<'format' | 'compress'>('format');
+  const [mediaType, setMediaType] = useState<'image' | 'audio' | 'video'>('image');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Array<{ uri: string; name: string }>>([]);
+  const [recentConversions, setRecentConversions] = useState<ConversionHistoryItem[]>([]);
 
-  // Get appropriate MIME types for file selection
-  const getMimeTypes = () => {
-    switch (conversionType) {
-      case 'image':
-        return ['image/webp', 'image/heic', 'image/heif', 'image/tiff', 'image/svg+xml', 'image/png', 'image/jpeg'];
-      case 'audio':
-        return ['audio/flac', 'audio/wav', 'audio/mpeg', 'audio/aac', 'audio/ogg', 'audio/mp4'];
-      case 'video':
-        return ['video/avi', 'video/x-matroska', 'video/mp4', 'video/quicktime'];
-      case 'document':
-        return ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/html', 'application/epub+zip', 'application/rtf', 'text/markdown'];
-      default:
-        return ['*/*'];
-    }
-  };
+
 
   // Request permissions using new permission system
   const requestPermissions = async (): Promise<boolean> => {
     try {
-      const { allGranted } = await requestAllRequiredPermissions(conversionType, true);
+      // For compress operation, we need image permissions
+      const permissionType = operationType === 'compress' ? 'image' : mediaType;
+      const { allGranted } = await requestAllRequiredPermissions(permissionType, true);
       return allGranted;
     } catch (error) {
       const appError = handleError(error, 'requestPermissions');
@@ -77,7 +70,9 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       let rawFiles: Array<{ uri: string; name: string }> = [];
 
       // File selection based on type
-      if (conversionType === 'image') {
+      const currentMediaType = operationType === 'compress' && mediaType === 'image' ? 'image' : mediaType;
+
+      if (currentMediaType === 'image') {
         const result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: 'images',
           allowsEditing: false,
@@ -94,11 +89,29 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
           name: asset.fileName || asset.uri.split('/').pop() || 'unknown.image'
         }));
 
-      } else {
+      } else if (currentMediaType === 'audio') {
+        // For audio files, use DocumentPicker
         const result = await DocumentPicker.getDocumentAsync({
-          type: getMimeTypes(),
-          copyToCacheDirectory: true,
+          type: ['audio/*'],
           multiple: true,
+          copyToCacheDirectory: false
+        });
+
+        if (result.canceled || !result.assets || result.assets.length === 0) {
+          return;
+        }
+
+        rawFiles = result.assets.map((asset: any) => ({
+          uri: asset.uri,
+          name: asset.name || asset.uri.split('/').pop() || 'unknown.audio'
+        }));
+
+      } else if (currentMediaType === 'video') {
+        // For video files, use ImagePicker
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: 'videos',
+          allowsMultipleSelection: true,
+          quality: 1,
         });
 
         if (result.canceled || !result.assets || result.assets.length === 0) {
@@ -107,12 +120,12 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
         rawFiles = result.assets.map(asset => ({
           uri: asset.uri,
-          name: asset.name || asset.uri.split('/').pop() || 'unknown.file'
+          name: asset.uri.split('/').pop() || 'unknown.video'
         }));
       }
 
       // Validate selected files
-      const { validFiles, invalidFiles } = await validateFiles(rawFiles, conversionType as MediaType);
+      const { validFiles, invalidFiles } = await validateFiles(rawFiles, currentMediaType as MediaType);
 
       // Show errors for invalid files
       if (invalidFiles.length > 0) {
@@ -163,23 +176,174 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       Alert.alert('No Files Selected', 'Please select at least one file to proceed.');
       return;
     }
-    navigation.navigate('GenericConversionSettings', {
-      files: selectedFiles,
-      conversionType
-    });
+
+    if (operationType === 'compress') {
+      // Check if it's audio compression or image compression
+      if (mediaType === 'audio') {
+        navigation.navigate('AudioCompressionSettings', {
+          files: selectedFiles
+        });
+      } else {
+        // Default to image compression
+        navigation.navigate('CompressionSettings', {
+          files: selectedFiles
+        });
+      }
+    } else {
+      navigation.navigate('GenericConversionSettings', {
+        files: selectedFiles,
+        conversionType: mediaType
+      });
+    }
   };
 
-  // Reset selected files when conversion type changes
-  const handleConversionTypeChange = (newType: 'image' | 'audio' | 'video' | 'document') => {
-    setConversionType(newType);
+  // Reset selected files when operation or media type changes
+  const handleOperationTypeChange = (newType: 'format' | 'compress') => {
+    setOperationType(newType);
     setSelectedFiles([]); // Clear selected files when type changes
   };
+
+  const handleMediaTypeChange = (newType: 'image' | 'audio' | 'video') => {
+    setMediaType(newType);
+    setSelectedFiles([]); // Clear selected files when type changes
+  };
+
+  // Load recent conversions
+  const loadRecentConversions = async () => {
+    try {
+      const recent = await ConversionHistoryManager.getRecentConversions(3);
+      setRecentConversions(recent);
+    } catch (error) {
+      console.error('Error loading recent conversions:', error);
+    }
+  };
+
+  // Handle file sharing from recent conversions
+  const handleShareFromHistory = async (conversion: ConversionHistoryItem) => {
+    try {
+      if (!conversion.success || !conversion.outputPath) {
+        Alert.alert('Share Error', 'This file cannot be shared because the conversion failed or the file path is not available.');
+        return;
+      }
+
+      console.log('📤 Sharing file from history:', conversion.outputPath, conversion.outputFileName);
+
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Share Not Available', 'Sharing is not available on this device.');
+        return;
+      }
+
+      // For media library URIs, we need to copy to a temporary location first
+      let shareUri = conversion.outputPath;
+
+      if (conversion.outputPath.startsWith('ph://') || conversion.outputPath.startsWith('content://')) {
+        // This is a media library URI, copy to temporary location
+        const tempPath = `${FileSystem.cacheDirectory}${conversion.outputFileName}`;
+
+        try {
+          await FileSystem.copyAsync({
+            from: conversion.outputPath,
+            to: tempPath
+          });
+          shareUri = tempPath;
+        } catch (copyError) {
+          console.error('Error copying file for sharing:', copyError);
+          Alert.alert('Share Error', 'Could not prepare file for sharing.');
+          return;
+        }
+      }
+
+      // Share the file
+      await Sharing.shareAsync(shareUri, {
+        mimeType: getMimeTypeFromExtension(conversion.outputFileName),
+        dialogTitle: `Share ${conversion.outputFileName}`,
+        UTI: getUTIFromExtension(conversion.outputFileName)
+      });
+
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('Share Error', 'An error occurred while sharing the file.');
+    }
+  };
+
+  // Helper function to get MIME type from file extension
+  const getMimeTypeFromExtension = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'aac':
+        return 'audio/aac';
+      case 'flac':
+        return 'audio/flac';
+      case 'mp4':
+        return 'video/mp4';
+      case 'avi':
+        return 'video/avi';
+      case 'mov':
+        return 'video/quicktime';
+      case 'mkv':
+        return 'video/x-matroska';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
+  // Helper function to get UTI from file extension (iOS)
+  const getUTIFromExtension = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'public.jpeg';
+      case 'png':
+        return 'public.png';
+      case 'webp':
+        return 'org.webmproject.webp';
+      case 'mp3':
+        return 'public.mp3';
+      case 'wav':
+        return 'com.microsoft.waveform-audio';
+      case 'aac':
+        return 'public.aac-audio';
+      case 'flac':
+        return 'org.xiph.flac';
+      case 'mp4':
+        return 'public.mpeg-4';
+      case 'avi':
+        return 'public.avi';
+      case 'mov':
+        return 'com.apple.quicktime-movie';
+      case 'mkv':
+        return 'org.matroska.mkv';
+      default:
+        return 'public.data';
+    }
+  };
+
+  // Load recent conversions on component mount
+  useEffect(() => {
+    loadRecentConversions();
+  }, []);
 
   // Clear selected files when screen comes into focus (user returns from other screens)
   useFocusEffect(
     React.useCallback(() => {
       // Clear selected files when returning to home screen
       setSelectedFiles([]);
+      // Reload recent conversions when returning to home screen
+      loadRecentConversions();
     }, [])
   );
 
@@ -203,45 +367,88 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
       </Surface>
 
       <ScrollView style={styles.content}>
-        <SegmentedButtons
-          value={conversionType}
-          onValueChange={handleConversionTypeChange}
-          buttons={[
-            {
-              value: 'image',
-              icon: 'image',
-              label: 'Image',
-            },
-            {
-              value: 'audio',
-              icon: 'music-note',
-              label: 'Audio',
-            },
-            {
-              value: 'video',
-              icon: 'video',
-              label: 'Video',
-            },
-            {
-              value: 'document',
-              icon: 'file-document',
-              label: 'Document',
-            },
-          ]}
-          style={styles.segmentedButton}
-        />
+        {/* Operation Type Selection */}
+        <Surface style={styles.card} elevation={1}>
+          <Text variant="titleMedium" style={styles.cardTitle}>
+            Choose Operation
+          </Text>
+          <SegmentedButtons
+            value={operationType}
+            onValueChange={handleOperationTypeChange}
+            buttons={[
+              {
+                value: 'format',
+                icon: 'swap-horizontal',
+                label: 'Format Conversion',
+              },
+              {
+                value: 'compress',
+                icon: 'archive-arrow-down',
+                label: 'Compress Files',
+              },
+            ]}
+            style={styles.segmentedButton}
+          />
+          <Text variant="bodySmall" style={styles.operationDescription}>
+            {operationType === 'format'
+              ? 'Convert files between different formats (JPEG, PNG, MP3, etc.)'
+              : 'Reduce file size while maintaining quality'
+            }
+          </Text>
+        </Surface>
+
+        {/* Media Type Selection */}
+        <Surface style={styles.card} elevation={1}>
+          <Text variant="titleMedium" style={styles.cardTitle}>
+            Choose Media Type
+          </Text>
+          <SegmentedButtons
+            value={mediaType}
+            onValueChange={handleMediaTypeChange}
+            buttons={[
+              {
+                value: 'image',
+                icon: 'image',
+                label: 'Image',
+              },
+              {
+                value: 'audio',
+                icon: 'music-note',
+                label: 'Audio',
+              },
+              {
+                value: 'video',
+                icon: 'video',
+                label: 'Video',
+              },
+            ]}
+            style={styles.segmentedButton}
+          />
+          <Text variant="bodySmall" style={styles.operationDescription}>
+            {operationType === 'format'
+              ? 'Select the type of media files you want to convert'
+              : operationType === 'compress' && mediaType === 'image'
+              ? 'Compress image files (JPEG, PNG, WebP)'
+              : operationType === 'compress' && mediaType === 'audio'
+              ? 'Compress audio files (MP3, AAC, FLAC)'
+              : 'Select media type for compression'
+            }
+          </Text>
+        </Surface>
 
         <Divider style={styles.divider} />
 
+        {/* File Selection */}
         <Surface style={styles.card} elevation={1}>
           <Text variant="titleMedium" style={styles.cardTitle}>
-            Select {conversionType} file(s) to convert
+            Select {mediaType} file(s) to {operationType === 'compress' ? 'compress' : 'convert'}
           </Text>
           <Text variant="bodyMedium" style={styles.cardText}>
-            {conversionType === 'image' && 'Supported formats: WebP, HEIC, BMP, PNG, JPEG, TIFF, SVG, RAW'}
-            {conversionType === 'audio' && 'Supported formats: FLAC, WAV, MP3, AAC, OGG, M4A, ALAC'}
-            {conversionType === 'video' && 'Supported formats: AVI, MKV, MOV, MP4'}
-            {conversionType === 'document' && 'Supported formats: PDF, DOCX, TXT, HTML, EPUB, RTF, MD'}
+            {operationType === 'compress' && mediaType === 'image' && 'Reduce file size while maintaining quality: JPEG, PNG, WebP'}
+            {operationType === 'compress' && mediaType === 'audio' && 'Reduce file size while maintaining quality: MP3, AAC, FLAC'}
+            {operationType === 'format' && mediaType === 'image' && 'Supported formats: WebP, HEIC, BMP, PNG, JPEG, TIFF, SVG, RAW'}
+            {operationType === 'format' && mediaType === 'audio' && 'Supported formats: FLAC, WAV, MP3, AAC, OGG, M4A, ALAC'}
+            {operationType === 'format' && mediaType === 'video' && 'Supported formats: AVI, MKV, MOV, MP4'}
           </Text>
           <View style={styles.buttonRow}>
             <Button
@@ -288,19 +495,20 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
                   description={`File ${index + 1} of ${selectedFiles.length}`}
                   titleNumberOfLines={1}
                   descriptionNumberOfLines={1}
-                  left={(props) =>
-                    conversionType === 'image' ? (
+                  left={(props) => {
+                    const currentMediaType = operationType === 'compress' && mediaType === 'image' ? 'image' : mediaType;
+                    return currentMediaType === 'image' ? (
                       <Image source={{ uri: file.uri }} style={styles.fileThumbnail} />
                     ) : (
                       <List.Icon
                         {...props}
                         icon={
-                          conversionType === 'audio' ? 'music-note' :
-                          conversionType === 'video' ? 'video' : 'file-document'
+                          currentMediaType === 'audio' ? 'music-note' :
+                          currentMediaType === 'video' ? 'video' : 'file'
                         }
                       />
-                    )
-                  }
+                    );
+                  }}
                   right={(props) => (
                     <IconButton
                       {...props}
@@ -329,32 +537,48 @@ export const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
         <Text variant="titleMedium" style={styles.recentTitle}>Recent Conversions</Text>
 
-        <Card style={styles.recentCard}>
-          <Card.Title
-            title="beach.webp → beach.jpg"
-            subtitle="Image • 2 minutes ago"
-            left={(props) => <IconButton icon="image" {...props} />}
-            right={(props) => <IconButton icon="share" {...props} />}
-          />
-        </Card>
-
-        <Card style={styles.recentCard}>
-          <Card.Title
-            title="lecture.flac → lecture.mp3"
-            subtitle="Audio • Yesterday"
-            left={(props) => <IconButton icon="music-note" {...props} />}
-            right={(props) => <IconButton icon="share" {...props} />}
-          />
-        </Card>
-
-        <Card style={styles.recentCard}>
-          <Card.Title
-            title="report.docx → report.pdf"
-            subtitle="Document • 3 days ago"
-            left={(props) => <IconButton icon="file-document" {...props} />}
-            right={(props) => <IconButton icon="share" {...props} />}
-          />
-        </Card>
+        {recentConversions.length > 0 ? (
+          recentConversions.map((conversion) => (
+            <Card key={conversion.id} style={styles.recentCard}>
+              <Card.Title
+                title={`${conversion.inputFileName} → ${conversion.outputFileName}`}
+                subtitle={`${conversion.conversionType.charAt(0).toUpperCase() + conversion.conversionType.slice(1)} • ${ConversionHistoryManager.formatRelativeTime(conversion.timestamp)}`}
+                left={(props) => (
+                  <IconButton
+                    icon={
+                      conversion.conversionType === 'image' ? 'image' :
+                      conversion.conversionType === 'audio' ? 'music-note' : 'video'
+                    }
+                    {...props}
+                  />
+                )}
+                right={(props) => (
+                  conversion.success && conversion.outputPath ? (
+                    <IconButton
+                      icon="share"
+                      {...props}
+                      onPress={() => handleShareFromHistory(conversion)}
+                    />
+                  ) : (
+                    <IconButton
+                      icon="alert-circle"
+                      {...props}
+                      iconColor={theme.colors.error}
+                    />
+                  )
+                )}
+              />
+            </Card>
+          ))
+        ) : (
+          <Card style={styles.recentCard}>
+            <Card.Content>
+              <Text variant="bodyMedium" style={{ textAlign: 'center', opacity: 0.7 }}>
+                No recent conversions yet. Start converting files to see them here!
+              </Text>
+            </Card.Content>
+          </Card>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -464,5 +688,10 @@ const styles = StyleSheet.create({
   recentCard: {
     marginBottom: 12,
     borderRadius: 12,
+  },
+  operationDescription: {
+    marginTop: 8,
+    opacity: 0.7,
+    textAlign: 'center',
   },
 });

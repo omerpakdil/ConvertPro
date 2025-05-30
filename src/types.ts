@@ -5,7 +5,7 @@ export interface FileItem {
   name: string;
 }
 
-export type MediaType = 'image' | 'audio' | 'video' | 'document' | string; // string for flexibility
+export type MediaType = 'image' | 'audio' | 'video' | 'compress' | string; // string for flexibility
 
 export interface FormatOption {
   id: string;
@@ -36,11 +36,6 @@ export const conversionOptions: { [key: string]: FormatOption[] } = { // Using s
     { id: 'avi', name: 'AVI', extension: 'avi', quality: [720, 1080] },
     { id: 'mov', name: 'MOV', extension: 'mov', quality: [720, 1080] },
     { id: 'mkv', name: 'MKV', extension: 'mkv', quality: [720, 1080] },
-  ],
-  document: [
-    { id: 'txt', name: 'TXT', extension: 'txt' },
-    { id: 'html', name: 'HTML', extension: 'html' },
-    { id: 'docx', name: 'DOCX', extension: 'docx' },
   ],
 };
 

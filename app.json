@@ -30,7 +30,17 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-secure-store",
+      "expo-document-picker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "ConvertPro needs access to save your compressed images to Photos app so you can easily find and share them.",
+          "savePhotosPermission": "ConvertPro will save your compressed images to Photos app for easy access.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
     ],
     "extra": {
       "eas": {

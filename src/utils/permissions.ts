@@ -26,7 +26,7 @@ export const checkPermission = async (type: PermissionType): Promise<PermissionR
           canAskAgain,
         };
       }
-      
+
       case PermissionType.CAMERA: {
         const { status, canAskAgain } = await ImagePicker.getCameraPermissionsAsync();
         return {
@@ -34,7 +34,7 @@ export const checkPermission = async (type: PermissionType): Promise<PermissionR
           canAskAgain,
         };
       }
-      
+
       default:
         return {
           granted: false,
@@ -65,12 +65,12 @@ export const requestPermission = async (type: PermissionType): Promise<Permissio
         return {
           granted: status === 'granted',
           canAskAgain,
-          error: status !== 'granted' 
+          error: status !== 'granted'
             ? createPermissionError(ErrorType.MEDIA_LIBRARY_PERMISSION, 'Media Library')
             : undefined,
         };
       }
-      
+
       case PermissionType.CAMERA: {
         const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
         return {
@@ -81,7 +81,7 @@ export const requestPermission = async (type: PermissionType): Promise<Permissio
             : undefined,
         };
       }
-      
+
       default:
         return {
           granted: false,
@@ -129,7 +129,7 @@ export const showPermissionDeniedDialog = (
     };
 
     const permissionName = permissionNames[type];
-    
+
     const title = `${permissionName} Permission Required`;
     const message = canAskAgain
       ? `This app needs ${permissionName.toLowerCase()} access to function properly. Please grant the permission.`
@@ -142,8 +142,8 @@ export const showPermissionDeniedDialog = (
         ]
       : [
           { text: 'Cancel', onPress: () => resolve(false), style: 'cancel' as const },
-          { 
-            text: 'Open Settings', 
+          {
+            text: 'Open Settings',
             onPress: () => {
               Linking.openSettings();
               resolve(false);
@@ -161,16 +161,16 @@ export const handlePermissionFlow = async (
   showDialog: boolean = true
 ): Promise<PermissionResult> => {
   const result = await ensurePermission(type);
-  
+
   if (!result.granted && showDialog) {
     const userWantsToRetry = await showPermissionDeniedDialog(type, result.canAskAgain);
-    
+
     if (userWantsToRetry && result.canAskAgain) {
       // Try requesting permission again
       return await requestPermission(type);
     }
   }
-  
+
   return result;
 };
 
@@ -179,11 +179,10 @@ export const getRequiredPermissions = (mediaType: string): PermissionType[] => {
   switch (mediaType) {
     case 'image':
     case 'video':
+    case 'compress':
       return [PermissionType.MEDIA_LIBRARY];
     case 'audio':
       return [PermissionType.MEDIA_LIBRARY];
-    case 'document':
-      return []; // Document picker handles its own permissions
     default:
       return [];
   }
@@ -195,18 +194,18 @@ export const checkAllRequiredPermissions = async (
 ): Promise<{ allGranted: boolean; results: Record<PermissionType, PermissionResult> }> => {
   const requiredPermissions = getRequiredPermissions(mediaType);
   const results: Record<PermissionType, PermissionResult> = {} as any;
-  
+
   let allGranted = true;
-  
+
   for (const permission of requiredPermissions) {
     const result = await checkPermission(permission);
     results[permission] = result;
-    
+
     if (!result.granted) {
       allGranted = false;
     }
   }
-  
+
   return { allGranted, results };
 };
 
@@ -217,17 +216,17 @@ export const requestAllRequiredPermissions = async (
 ): Promise<{ allGranted: boolean; results: Record<PermissionType, PermissionResult> }> => {
   const requiredPermissions = getRequiredPermissions(mediaType);
   const results: Record<PermissionType, PermissionResult> = {} as any;
-  
+
   let allGranted = true;
-  
+
   for (const permission of requiredPermissions) {
     const result = await handlePermissionFlow(permission, showDialogs);
     results[permission] = result;
-    
+
     if (!result.granted) {
       allGranted = false;
     }
   }
-  
+
   return { allGranted, results };
 };

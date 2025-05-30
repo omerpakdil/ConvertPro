@@ -173,8 +173,7 @@ export const GenericConversionSettingsScreen = ({ navigation, route }: GenericCo
             <View style={styles.fileInfoRow}>
               <Chip
                 icon={conversionType === 'image' ? 'image-outline' :
-                     conversionType === 'audio' ? 'music-note-outline' :
-                     conversionType === 'video' ? 'video-outline' : 'file-document-outline'}
+                     conversionType === 'audio' ? 'music-note-outline' : 'video-outline'}
                 style={[styles.chip, {backgroundColor: theme.colors.secondaryContainer}]}
                 textStyle={{color: theme.colors.onSecondaryContainer}}
               >

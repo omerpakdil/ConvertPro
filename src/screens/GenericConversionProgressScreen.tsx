@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar, Image, Dimensions, Linking } from 'react-native';
+import { View, StyleSheet, Platform, Alert, ScrollView, StatusBar as ReactNativeStatusBar, Image, Linking } from 'react-native';
 import FFmpegService, { ConversionProgress } from '../services/FFmpegService';
-import DocumentService from '../services/DocumentService';
 import {
   Text,
   Button,
@@ -11,7 +10,6 @@ import {
   ProgressBar,
   Card,
   Divider,
-  List,
   Chip
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,9 +19,12 @@ import { RouteProp } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system'; // react-native-fs yerine expo-file-system kullanıyoruz
 import * as MediaLibrary from 'expo-media-library';
 import * as ImageManipulator from 'expo-image-manipulator'; // expo-image-manipulator import edildi
+import * as Sharing from 'expo-sharing';
 // @ts-ignore TODO: Define RootStackParamList and other types in types.ts
-import { RootStackParamList, MediaType } from '../types';
+import { RootStackParamList } from '../types';
 import Animated, { useSharedValue, withTiming, useAnimatedStyle, Easing } from 'react-native-reanimated'; // Kurulumu gerekebilir
+import ConversionHistoryManager from '../utils/conversionHistory';
+
 
 type ConversionProgressScreenNavigationProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -176,13 +177,108 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
   const handleShareFile = async (filePath: string, fileName: string) => {
     try {
       console.log('📤 Sharing file:', filePath, fileName);
-      const success = await DocumentService.shareConvertedFile(filePath, fileName);
-      if (!success) {
-        Alert.alert('Share Failed', 'Unable to share the file. Please try again.');
+
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Share Not Available', 'Sharing is not available on this device.');
+        return;
       }
+
+      // For media library URIs, we need to copy to a temporary location first
+      let shareUri = filePath;
+
+      if (filePath.startsWith('ph://') || filePath.startsWith('content://')) {
+        // This is a media library URI, copy to temporary location
+        const tempPath = `${FileSystem.cacheDirectory}${fileName}`;
+
+        try {
+          await FileSystem.copyAsync({
+            from: filePath,
+            to: tempPath
+          });
+          shareUri = tempPath;
+        } catch (copyError) {
+          console.error('Error copying file for sharing:', copyError);
+          Alert.alert('Share Error', 'Could not prepare file for sharing.');
+          return;
+        }
+      }
+
+      // Share the file
+      await Sharing.shareAsync(shareUri, {
+        mimeType: getMimeTypeFromExtension(fileName),
+        dialogTitle: `Share ${fileName}`,
+        UTI: getUTIFromExtension(fileName)
+      });
+
     } catch (error) {
       console.error('Share error:', error);
       Alert.alert('Share Error', 'An error occurred while sharing the file.');
+    }
+  };
+
+  // Helper function to get MIME type from file extension
+  const getMimeTypeFromExtension = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'aac':
+        return 'audio/aac';
+      case 'flac':
+        return 'audio/flac';
+      case 'mp4':
+        return 'video/mp4';
+      case 'avi':
+        return 'video/avi';
+      case 'mov':
+        return 'video/quicktime';
+      case 'mkv':
+        return 'video/x-matroska';
+      default:
+        return 'application/octet-stream';
+    }
+  };
+
+  // Helper function to get UTI from file extension (iOS)
+  const getUTIFromExtension = (fileName: string): string => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'public.jpeg';
+      case 'png':
+        return 'public.png';
+      case 'webp':
+        return 'org.webmproject.webp';
+      case 'mp3':
+        return 'public.mp3';
+      case 'wav':
+        return 'com.microsoft.waveform-audio';
+      case 'aac':
+        return 'public.aac-audio';
+      case 'flac':
+        return 'org.xiph.flac';
+      case 'mp4':
+        return 'public.mpeg-4';
+      case 'avi':
+        return 'public.avi';
+      case 'mov':
+        return 'com.apple.quicktime-movie';
+      case 'mkv':
+        return 'org.matroska.mkv';
+      default:
+        return 'public.data';
     }
   };
 
@@ -455,77 +551,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
     }
   };
 
-  // Process document file using DocumentService
-  const processDocumentFile = async (file: FileToConvert, targetExtension: string, options?: any): Promise<ConvertedFileResult> => {
-    setCurrentFileProgress(0);
-    setCurrentStatusMessage(`Preparing ${file.name} for document conversion...`);
 
-    const originalFileName = file.uri.split('/').pop() || 'unknown_original_document';
-    const baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.')) || originalFileName;
-    const newFileNameWithExtension = `${baseName}_converted.${targetExtension}`;
-
-    try {
-      setCurrentFileProgress(0.1);
-      setCurrentStatusMessage(`Converting ${file.name} to ${targetExtension.toUpperCase()}...`);
-
-      // Determine document conversion options
-      const conversionOptions = {
-        outputFormat: targetExtension,
-        fontSize: options?.fontSize || 12,
-        fontFamily: options?.fontFamily || 'Arial',
-        pageSize: options?.pageSize || 'A4',
-        margins: {
-          top: 72,
-          bottom: 72,
-          left: 72,
-          right: 72
-        }
-      };
-
-      setCurrentFileProgress(0.2);
-
-      // Convert using DocumentService
-      const result = await DocumentService.convertDocumentFile(
-        file.uri,
-        targetExtension,
-        conversionOptions
-      );
-
-      if (isCancelledRef.current) {
-        return { ...file, success: false, error: 'Cancelled by user', outputName: newFileNameWithExtension };
-      }
-
-      setCurrentFileProgress(0.9);
-
-      if (result.success) {
-        console.log('Document file converted and saved:', result.outputPath);
-        setCurrentFileProgress(1);
-        return {
-          ...file,
-          success: true,
-          outputPath: result.outputPath!,
-          outputName: newFileNameWithExtension
-        };
-      } else {
-        setCurrentFileProgress(1);
-        return {
-          ...file,
-          success: false,
-          error: result.error || 'Document conversion failed',
-          outputName: newFileNameWithExtension
-        };
-      }
-    } catch (error: any) {
-      console.error('Document conversion error:', error);
-      setCurrentFileProgress(1);
-      return {
-        ...file,
-        success: false,
-        error: error.message || 'Document conversion failed',
-        outputName: newFileNameWithExtension
-      };
-    }
-  };
 
   const startOverallConversion = async () => {
     setConversionState('converting');
@@ -552,8 +578,6 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
           result = await processAudioFile(currentFile, outputFormatExtension, quality);
         } else if (conversionType === 'video') {
           result = await processVideoFile(currentFile, outputFormatExtension, quality);
-        } else if (conversionType === 'document') {
-          result = await processDocumentFile(currentFile, outputFormatExtension, { quality });
         } else {
           // Unsupported conversion type
           setCurrentStatusMessage(`Conversion type '${conversionType}' is not yet implemented for ${currentFile.name}.`);
@@ -579,6 +603,23 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
       results.push(result);
       setProcessedFiles([...results]);
       setOverallProgress((i + 1) / totalFiles);
+
+      // Save to conversion history
+      try {
+        const inputExtension = currentFile.name.split('.').pop() || '';
+        await ConversionHistoryManager.addConversion({
+          inputFileName: currentFile.name,
+          outputFileName: result.outputName || `${currentFile.name}_converted.${outputFormatExtension}`,
+          inputFormat: inputExtension.toUpperCase(),
+          outputFormat: outputFormatExtension.toUpperCase(),
+          conversionType: conversionType as 'image' | 'audio' | 'video',
+          success: result.success,
+          outputPath: result.outputPath,
+        });
+      } catch (historyError) {
+        console.error('Error saving to conversion history:', historyError);
+        // Don't fail the conversion if history saving fails
+      }
 
       // Small delay between files for better UX
       if (i < totalFiles - 1 && !isCancelledRef.current) {
@@ -656,8 +697,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
           <View style={styles.progressContainer}>
             <IconButton
               icon={conversionType === 'image' ? 'image-edit' :
-                   conversionType === 'audio' ? 'music-note' :
-                   conversionType === 'video' ? 'video' : 'file-document'}
+                   conversionType === 'audio' ? 'music-note' : 'video'}
               size={80}
               iconColor={theme.colors.primary}
               style={styles.typeIcon}
@@ -787,8 +827,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
                               icon={
                                 file.success ? (
                                   conversionType === 'image' ? 'image' :
-                                  conversionType === 'audio' ? 'music-note' :
-                                  conversionType === 'video' ? 'video' : 'file-document'
+                                  conversionType === 'audio' ? 'music-note' : 'video'
                                 ) : 'alert-circle'
                               }
                               iconColor={file.success ? theme.colors.onPrimaryContainer : theme.colors.onErrorContainer}
@@ -813,6 +852,15 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
                         >
                           {file.success ? `✓ Converted` : `✗ ${file.error}`}
                         </Text>
+                        {file.success && file.outputPath && (
+                          <Text
+                            variant="bodySmall"
+                            style={[styles.fileLocationText, {color: theme.colors.onSurfaceVariant}]}
+                            numberOfLines={1}
+                          >
+                            📁 {file.outputPath.includes('Downloads') ? 'Downloads' : 'Gallery'}
+                          </Text>
+                        )}
                         {file.success && (
                           <Chip
                             icon="check"
@@ -820,7 +868,7 @@ export const GenericConversionProgressScreen = ({ navigation, route }: Conversio
                             textStyle={{color: theme.colors.primary, fontSize: 10}}
                             compact
                           >
-                            Saved to Gallery
+                            Saved to {file.outputPath?.includes('Downloads') ? 'Downloads' : 'Gallery'}
                           </Chip>
                         )}
                       </View>
@@ -1007,6 +1055,11 @@ const styles = StyleSheet.create({
   },
   fileResultDescription: {
     marginBottom: 6,
+  },
+  fileLocationText: {
+    marginBottom: 6,
+    fontSize: 11,
+    opacity: 0.8,
   },
   successChip: {
     alignSelf: 'flex-start',

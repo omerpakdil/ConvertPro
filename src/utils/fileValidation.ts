@@ -6,7 +6,7 @@ export const FILE_SIZE_LIMITS = {
   image: 50 * 1024 * 1024, // 50MB
   audio: 100 * 1024 * 1024, // 100MB
   video: 500 * 1024 * 1024, // 500MB
-  document: 25 * 1024 * 1024, // 25MB
+  compress: 50 * 1024 * 1024, // 50MB (same as image)
 } as const;
 
 // Supported file extensions
@@ -14,7 +14,7 @@ export const SUPPORTED_EXTENSIONS = {
   image: ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.svg', '.bmp'],
   audio: ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma'],
   video: ['.mp4', '.avi', '.mkv', '.mov'],
-  document: ['.pdf', '.docx', '.txt', '.html', '.htm', '.epub', '.rtf', '.md', '.doc'],
+  compress: ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.tiff', '.bmp'], // Image formats for compression
 } as const;
 
 // MIME type mappings
@@ -30,10 +30,9 @@ export const MIME_TYPES = {
   video: [
     'video/mp4', 'video/avi', 'video/x-matroska', 'video/quicktime'
   ],
-  document: [
-    'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain', 'text/html', 'application/epub+zip', 'application/rtf', 'text/markdown',
-    'application/msword'
+  compress: [
+    'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
+    'image/tiff', 'image/bmp'
   ],
 } as const;
 

@@ -3,16 +3,13 @@ import {
   View,
   StyleSheet,
   SafeAreaView,
-  Dimensions,
   UIManager,
-  LayoutAnimation,
   Platform,
   Animated,
   StatusBar as RNStatusBar
 } from 'react-native';
 import {
   Button,
-  useTheme,
   Text,
   Surface,
   IconButton,
@@ -44,7 +41,7 @@ const onboardingSteps = [
     icon: 'auto-fix',
     title: 'Welcome to\nConvertPro',
     subtitle: 'Transform Any File Format',
-    description: 'Convert images, audio, video, and documents with professional quality. Fast, secure, and completely offline.',
+    description: 'Convert images, audio and video with professional quality. Fast, secure, and completely offline.',
     gradient: ['#1a1a2e', '#16213e', '#0f3460'],
     accentColor: '#bb86fc',
     features: ['Professional Quality', 'Lightning Fast', '100% Secure']
@@ -81,12 +78,8 @@ const onboardingSteps = [
   },
 ];
 
-const { width } = Dimensions.get('window');
-
 const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const theme = useTheme();
-  const { colors } = theme;
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(1)).current;
